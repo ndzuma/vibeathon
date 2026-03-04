@@ -1,6 +1,7 @@
 {
   "expo": {
-    "name": "vibeathon",
+    "name": "QueueQuest",
+    "displayName": "QueueQuest",
     "slug": "vibeathon",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -34,12 +35,9 @@
             "imageWidth": 76
           }
         }
-      ]
+      ],
+      "expo-font"
     ],
-    "experiments": {
-      "typedRoutes": true,
-      "reactCompiler": true
-    },
     "extra": {
       "router": {},
       "eas": {

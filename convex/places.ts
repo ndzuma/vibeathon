@@ -49,51 +49,76 @@ export const getPlace = query({
   },
 });
 
-/** Search places by name (case-insensitive substring) */
+/** Search places — name matches ranked first, then address/description matches */
 export const searchPlaces = query({
   args: { query: v.string() },
   handler: async (ctx, { query: q }) => {
     const all = await ctx.db.query("places").collect();
     const lower = q.toLowerCase();
-    const filtered = all.filter(
-      (p) =>
-        p.name.toLowerCase().includes(lower) ||
+
+    const nameMatches: typeof all = [];
+    const otherMatches: typeof all = [];
+
+    for (const p of all) {
+      const nameLower = p.name.toLowerCase();
+      if (nameLower.startsWith(lower)) {
+        // Exact prefix — highest rank
+        nameMatches.unshift(p);
+      } else if (nameLower.includes(lower)) {
+        nameMatches.push(p);
+      } else if (
         p.address.toLowerCase().includes(lower) ||
         p.description?.toLowerCase().includes(lower)
-    );
-    return Promise.all(filtered.map((p) => enrichPlace(ctx, p)));
+      ) {
+        otherMatches.push(p);
+      }
+    }
+
+    const ordered = [...nameMatches, ...otherMatches];
+    return Promise.all(ordered.map((p) => enrichPlace(ctx, p)));
   },
 });
 
 /**
- * Trending places — ranked by number of vibes submitted in the last 3 hours.
- * Returns up to `limit` places.
+ * Trending places — weighted vibe score over last 30 min, sorted chaos→empty.
+ * chaos=4, busy=3, quiet=2, empty=1. Returns up to `limit` places.
  */
 export const getTrendingPlaces = query({
   args: { limit: v.optional(v.number()) },
   handler: async (ctx, { limit = 10 }) => {
-    const since = Date.now() - 3 * 60 * 60 * 1000; // 3 hours ago
+    const thirtyMinAgo = Date.now() - 30 * 60 * 1000;
     const recentVibes = await ctx.db
       .query("vibes")
-      .filter((q) => q.gte(q.field("createdAt"), since))
+      .filter((q) => q.gte(q.field("createdAt"), thirtyMinAgo))
       .collect();
 
-    // Count vibes per place
+    if (recentVibes.length === 0) return [];
+
+    // Weighted score per place: chaos=4, busy=3, quiet=2, empty=1
+    const VIBE_WEIGHT: Record<string, number> = {
+      chaos: 4, busy: 3, quiet: 2, empty: 1,
+    };
+    const scoreMap: Record<string, number> = {};
     const countMap: Record<string, number> = {};
-    for (const v of recentVibes) {
-      countMap[v.placeId] = (countMap[v.placeId] ?? 0) + 1;
+    for (const vibe of recentVibes) {
+      const pid = vibe.placeId as string;
+      scoreMap[pid] = (scoreMap[pid] ?? 0) + (VIBE_WEIGHT[vibe.level] ?? 1);
+      countMap[pid] = (countMap[pid] ?? 0) + 1;
     }
 
-    // Sort by count descending
-    const sortedIds = Object.entries(countMap)
+    // Average weighted score (so places with 1 chaos report don't beat 5 busy)
+    const avgScore: Record<string, number> = {};
+    for (const pid of Object.keys(scoreMap)) {
+      avgScore[pid] = scoreMap[pid] / countMap[pid];
+    }
+
+    // Sort by avg score desc (chaos > busy > quiet > empty)
+    const sortedIds = Object.entries(avgScore)
       .sort((a, b) => b[1] - a[1])
       .slice(0, limit)
       .map(([id]) => id);
 
-    // Fetch the actual places
-    const places = await Promise.all(
-      sortedIds.map((id) => ctx.db.get(id as any))
-    );
+    const places = await Promise.all(sortedIds.map((id) => ctx.db.get(id as any)));
     const valid = places.filter(Boolean) as any[];
     return Promise.all(valid.map((p) => enrichPlace(ctx, p)));
   },
@@ -155,6 +180,7 @@ export const deletePlace = mutation({
 
 // ---------------------------------------------------------------------------
 // Internal helper — enrich a place row with current vibe + image URL
+// Uses last 30-min weighted average: chaos=4, busy=3, quiet=2, empty=1
 // ---------------------------------------------------------------------------
 async function enrichPlace(ctx: any, place: any) {
   // Resolve storage image URL
@@ -165,24 +191,26 @@ async function enrichPlace(ctx: any, place: any) {
     resolvedImageUrl = place.imageUrl;
   }
 
-  // Get the most recent vibe (within last 2 hours) to show current vibe
-  const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
+  // Weighted dominant vibe from last 30 minutes
+  const thirtyMinAgo = Date.now() - 30 * 60 * 1000;
   const recentVibes = await ctx.db
     .query("vibes")
     .withIndex("by_placeId_createdAt", (q: any) =>
-      q.eq("placeId", place._id).gte("createdAt", twoHoursAgo)
+      q.eq("placeId", place._id).gte("createdAt", thirtyMinAgo)
     )
     .order("desc")
     .collect();
 
-  // Calculate the dominant vibe from recent reports
-  const vibeCount: Record<string, number> = {};
+  // Weighted count: chaos=4, busy=3, quiet=2, empty=1
+  const WEIGHTS: Record<string, number> = { chaos: 4, busy: 3, quiet: 2, empty: 1 };
+  const weightedCounts: Record<string, number> = {};
   for (const v of recentVibes) {
-    vibeCount[v.level] = (vibeCount[v.level] ?? 0) + 1;
+    weightedCounts[v.level] = (weightedCounts[v.level] ?? 0) + WEIGHTS[v.level];
   }
+
   const currentVibe =
     recentVibes.length > 0
-      ? (Object.entries(vibeCount).sort((a, b) => b[1] - a[1])[0][0] as string)
+      ? (Object.entries(weightedCounts).sort((a, b) => b[1] - a[1])[0][0])
       : null;
 
   return {
@@ -198,5 +226,18 @@ export const generateUploadUrl = mutation({
   args: {},
   handler: async (ctx) => {
     return ctx.storage.generateUploadUrl();
+  },
+});
+
+/** List places added by a specific user */
+export const listPlacesByUser = query({
+  args: { addedBy: v.string() },
+  handler: async (ctx, { addedBy }) => {
+    const places = await ctx.db
+      .query("places")
+      .filter((q) => q.eq(q.field("addedBy"), addedBy))
+      .order("desc")
+      .collect();
+    return Promise.all(places.map((p) => enrichPlace(ctx, p)));
   },
 });

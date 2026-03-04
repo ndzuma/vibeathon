@@ -8,7 +8,7 @@ const levelValidator = v.union(
   v.literal("chaos")
 );
 
-/** Submit a vibe report for a place */
+/** Submit a vibe report for a place (rate-limited: once per 30 min per user per place) */
 export const submitVibe = mutation({
   args: {
     placeId: v.id("places"),
@@ -19,6 +19,21 @@ export const submitVibe = mutation({
     // Verify the place exists
     const place = await ctx.db.get(placeId);
     if (!place) throw new Error("Place not found");
+
+    // Rate-limit: check if this user already reported for this place in the last 30 min
+    const thirtyMinAgo = Date.now() - 30 * 60 * 1000;
+    const recent = await ctx.db
+      .query("vibes")
+      .withIndex("by_placeId_createdAt", (q) =>
+        q.eq("placeId", placeId).gte("createdAt", thirtyMinAgo)
+      )
+      .filter((q) => q.eq(q.field("userId"), userId))
+      .first();
+
+    if (recent) {
+      const minsLeft = Math.ceil((recent.createdAt + 30 * 60 * 1000 - Date.now()) / 60000);
+      throw new Error(`You already reported a vibe here. Try again in ${minsLeft} minute${minsLeft !== 1 ? "s" : ""}.`);
+    }
 
     return ctx.db.insert("vibes", {
       placeId,
@@ -74,6 +89,28 @@ export const getVibeSummary = query({
         : null;
 
     return { counts, total, dominant };
+  },
+});
+
+/**
+ * Check if the current user can submit a vibe for this place.
+ * Returns { canSubmit: true } or { canSubmit: false, minsLeft: number }
+ */
+export const canSubmitVibe = query({
+  args: { placeId: v.id("places"), userId: v.string() },
+  handler: async (ctx, { placeId, userId }) => {
+    const thirtyMinAgo = Date.now() - 30 * 60 * 1000;
+    const recent = await ctx.db
+      .query("vibes")
+      .withIndex("by_placeId_createdAt", (q) =>
+        q.eq("placeId", placeId).gte("createdAt", thirtyMinAgo)
+      )
+      .filter((q) => q.eq(q.field("userId"), userId))
+      .first();
+
+    if (!recent) return { canSubmit: true, minsLeft: 0 };
+    const minsLeft = Math.ceil((recent.createdAt + 30 * 60 * 1000 - Date.now()) / 60000);
+    return { canSubmit: false, minsLeft };
   },
 });
 

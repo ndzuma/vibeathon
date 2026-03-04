@@ -59,21 +59,45 @@ export const updateProfile = mutation({
     name: v.optional(v.string()),
     bio: v.optional(v.string()),
     avatarUrl: v.optional(v.string()),
+    avatarStorageId: v.optional(v.id("_storage")),
   },
-  handler: async (ctx, { authId, name, bio, avatarUrl }) => {
+  handler: async (ctx, { authId, name, bio, avatarUrl, avatarStorageId }) => {
     const user = await ctx.db
       .query("users")
       .withIndex("by_authId", (q) => q.eq("authId", authId))
       .unique();
 
-    if (!user) throw new Error("User not found");
-
-    const patch: Partial<{ name: string; bio: string; avatarUrl: string }> = {};
+    const patch: Record<string, any> = {};
     if (name !== undefined) patch.name = name;
     if (bio !== undefined) patch.bio = bio;
-    if (avatarUrl !== undefined) patch.avatarUrl = avatarUrl;
+    if (avatarStorageId !== undefined) {
+      patch.avatarStorageId = avatarStorageId;
+      const url = await ctx.storage.getUrl(avatarStorageId);
+      if (url) patch.avatarUrl = url;
+    } else if (avatarUrl !== undefined) {
+      patch.avatarUrl = avatarUrl;
+    }
+
+    if (!user) {
+      // Row doesn't exist yet — create a minimal profile so the update isn't lost
+      return ctx.db.insert("users", {
+        authId,
+        name: patch.name ?? "Student",
+        email: "",
+        avatarUrl: patch.avatarUrl,
+        avatarStorageId: patch.avatarStorageId,
+        bio: patch.bio,
+        createdAt: Date.now(),
+      });
+    }
 
     await ctx.db.patch(user._id, patch);
     return user._id;
   },
+});
+
+/** Generate upload URL for avatar images */
+export const generateAvatarUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => ctx.storage.generateUploadUrl(),
 });

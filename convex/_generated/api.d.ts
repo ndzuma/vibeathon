@@ -10,8 +10,11 @@
 
 import type * as auth from "../auth.js";
 import type * as http from "../http.js";
+import type * as imageRequests from "../imageRequests.js";
 import type * as places from "../places.js";
+import type * as ratings from "../ratings.js";
 import type * as saves from "../saves.js";
+import type * as seed from "../seed.js";
 import type * as users from "../users.js";
 import type * as vibes from "../vibes.js";
 
@@ -24,8 +27,11 @@ import type {
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   http: typeof http;
+  imageRequests: typeof imageRequests;
   places: typeof places;
+  ratings: typeof ratings;
   saves: typeof saves;
+  seed: typeof seed;
   users: typeof users;
   vibes: typeof vibes;
 }>;

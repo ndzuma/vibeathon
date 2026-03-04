@@ -1,6 +1,7 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import React, { useState } from 'react';
+import { ArrowLeft } from 'phosphor-react-native';
+import React, { useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -21,38 +22,47 @@ import { authClient } from '@/lib/auth-client';
 import { useMutation } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
 
-export default function LoginScreen() {
+export default function SignupScreen() {
   const theme = useTheme();
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [nameFocused, setNameFocused] = useState(false);
   const [emailFocused, setEmailFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
 
+  const emailRef = useRef<TextInput>(null);
+  const passwordRef = useRef<TextInput>(null);
+
   const upsertUser = useMutation(api.users.upsertUser);
 
-  async function handleLogin() {
-    if (!email.trim() || !password.trim()) {
-      Alert.alert('Missing fields', 'Please enter your email and password.');
+  async function handleSignup() {
+    if (!name.trim() || !email.trim() || !password.trim()) {
+      Alert.alert('Missing fields', 'Please fill in all fields.');
+      return;
+    }
+    if (password.length < 8) {
+      Alert.alert('Weak password', 'Password must be at least 8 characters.');
       return;
     }
 
     setLoading(true);
     try {
-      const result = await authClient.signIn.email({
+      const result = await authClient.signUp.email({
+        name: name.trim(),
         email: email.trim().toLowerCase(),
         password,
       });
 
       if (result.error) {
-        Alert.alert('Sign in failed', result.error.message ?? 'Please check your credentials.');
+        Alert.alert('Sign up failed', result.error.message ?? 'Please try again.');
       } else {
-        // Ensure our users table has a record for this user
         if (result.data?.user) {
           const u = result.data.user;
           await upsertUser({
             authId: u.id,
-            name: u.name ?? '',
+            name: u.name ?? name.trim(),
             email: u.email,
           }).catch(() => {/* non-fatal */});
         }
@@ -70,18 +80,18 @@ export default function LoginScreen() {
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
       <StatusBar barStyle={theme.statusBar} translucent backgroundColor="transparent" />
 
-      {/* Ambient blob */}
+      {/* Ambient gradient blobs */}
       <LinearGradient
-        colors={theme.isDark ? ['#1A2E6E', '#0A0A0A'] : ['#D6E4FF', '#F5F5F7']}
+        colors={theme.isDark ? ['#2C1B4A', '#0A0A0A'] : ['#E8DFFF', '#F5F5F7']}
         start={{ x: 0.5, y: 0 }}
         end={{ x: 0.5, y: 1 }}
         style={styles.blob}
         pointerEvents="none"
       />
       <LinearGradient
-        colors={theme.isDark ? ['#0D1F4D', 'transparent'] : ['#EBF0FF', 'transparent']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
+        colors={theme.isDark ? ['#1A2E6E', 'transparent'] : ['#D6E4FF', 'transparent']}
+        start={{ x: 1, y: 0 }}
+        end={{ x: 0, y: 1 }}
         style={styles.blobSide}
         pointerEvents="none"
       />
@@ -95,20 +105,46 @@ export default function LoginScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
+          {/* Back button */}
+          <Pressable style={styles.back} onPress={() => router.back()} hitSlop={12}>
+            <ArrowLeft size={18} color={theme.textSecondary} weight="regular" />
+            <Text style={[styles.backText, { color: theme.textSecondary }]}>Back</Text>
+          </Pressable>
+
           {/* Header */}
           <View style={styles.header}>
-            <View style={[styles.logoMark, { backgroundColor: Brand.accentMuted, borderColor: Brand.accent + '55' }]}>
-              <Text style={[styles.logoText, { color: Brand.accent }]}>Q</Text>
-            </View>
-            <Text style={[styles.title, { color: theme.textPrimary }]}>Welcome back</Text>
-            <Text style={[styles.subtitle, { color: theme.textSecondary }]}>Sign in to your QueueQuest account</Text>
+            <Text style={[styles.title, { color: theme.textPrimary }]}>Create account</Text>
+            <Text style={[styles.subtitle, { color: theme.textSecondary }]}>Join QueueQuest and start sharing vibes</Text>
           </View>
 
           {/* Form */}
           <View style={styles.form}>
             <View style={styles.fieldGroup}>
+              <Text style={[styles.label, { color: theme.textSecondary }]}>Name</Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.textPrimary },
+                  nameFocused && { borderColor: Brand.accent + '88', backgroundColor: theme.inputFocusBg },
+                ]}
+                value={name}
+                onChangeText={setName}
+                placeholder="Your name"
+                placeholderTextColor={theme.textTertiary}
+                autoCapitalize="words"
+                autoCorrect={false}
+                autoComplete="name"
+                returnKeyType="next"
+                onSubmitEditing={() => emailRef.current?.focus()}
+                onFocus={() => setNameFocused(true)}
+                onBlur={() => setNameFocused(false)}
+              />
+            </View>
+
+            <View style={styles.fieldGroup}>
               <Text style={[styles.label, { color: theme.textSecondary }]}>Email</Text>
               <TextInput
+                ref={emailRef}
                 style={[
                   styles.input,
                   { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.textPrimary },
@@ -123,6 +159,7 @@ export default function LoginScreen() {
                 autoCorrect={false}
                 autoComplete="email"
                 returnKeyType="next"
+                onSubmitEditing={() => passwordRef.current?.focus()}
                 onFocus={() => setEmailFocused(true)}
                 onBlur={() => setEmailFocused(false)}
               />
@@ -131,6 +168,7 @@ export default function LoginScreen() {
             <View style={styles.fieldGroup}>
               <Text style={[styles.label, { color: theme.textSecondary }]}>Password</Text>
               <TextInput
+                ref={passwordRef}
                 style={[
                   styles.input,
                   { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.textPrimary },
@@ -138,12 +176,12 @@ export default function LoginScreen() {
                 ]}
                 value={password}
                 onChangeText={setPassword}
-                placeholder="••••••••"
+                placeholder="Min. 8 characters"
                 placeholderTextColor={theme.textTertiary}
                 secureTextEntry
-                autoComplete="current-password"
+                autoComplete="new-password"
                 returnKeyType="done"
-                onSubmitEditing={handleLogin}
+                onSubmitEditing={handleSignup}
                 onFocus={() => setPasswordFocused(true)}
                 onBlur={() => setPasswordFocused(false)}
               />
@@ -151,22 +189,26 @@ export default function LoginScreen() {
 
             <Pressable
               style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed]}
-              onPress={handleLogin}
+              onPress={handleSignup}
               disabled={loading}
             >
               {loading ? (
                 <ActivityIndicator color="#fff" />
               ) : (
-                <Text style={styles.ctaText}>Sign in</Text>
+                <Text style={styles.ctaText}>Create account</Text>
               )}
             </Pressable>
+
+            <Text style={[styles.terms, { color: theme.textTertiary }]}>
+              By continuing you agree to our Terms of Service and Privacy Policy.
+            </Text>
           </View>
 
           {/* Footer link */}
           <View style={styles.footerRow}>
-            <Text style={[styles.footerText, { color: theme.textSecondary }]}>Don't have an account? </Text>
-            <Pressable onPress={() => router.push('/(auth)/signup' as any)} hitSlop={8}>
-              <Text style={[styles.footerLink, { color: Brand.accent }]}>Sign up</Text>
+            <Text style={[styles.footerText, { color: theme.textSecondary }]}>Already have an account? </Text>
+            <Pressable onPress={() => router.back()} hitSlop={8}>
+              <Text style={[styles.footerLink, { color: Brand.accent }]}>Sign in</Text>
             </Pressable>
           </View>
         </ScrollView>
@@ -179,24 +221,25 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   container: { flex: 1 },
   blob: {
-    position: 'absolute', top: -100, left: -80, width: 600, height: 500, borderRadius: 300, opacity: 0.85,
+    position: 'absolute', top: -120, left: -60, width: 580, height: 480, borderRadius: 300, opacity: 0.8,
   },
   blobSide: {
-    position: 'absolute', top: 40, right: -120, width: 400, height: 400, borderRadius: 200, opacity: 0.5,
+    position: 'absolute', top: 60, right: -100, width: 380, height: 380, borderRadius: 190, opacity: 0.45,
   },
   scroll: {
     flexGrow: 1,
     paddingHorizontal: Spacing.six,
-    paddingTop: Platform.OS === 'ios' ? 100 : 70,
+    paddingTop: Platform.OS === 'ios' ? 70 : 50,
     paddingBottom: 40,
-    justifyContent: 'center',
   },
-  header: { marginBottom: Spacing.nine },
-  logoMark: {
-    width: 52, height: 52, borderRadius: Radius.lg, borderWidth: 1,
-    alignItems: 'center', justifyContent: 'center', marginBottom: Spacing.six,
+  back: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: Spacing.seven,
   },
-  logoText: { fontFamily: FontFamily.sansBold, fontSize: FontSize.xl, letterSpacing: -0.5 },
+  backText: { fontFamily: FontFamily.sansMedium, fontSize: FontSize.sm, letterSpacing: 0.2 },
+  header: { marginBottom: Spacing.eight },
   title: { fontFamily: FontFamily.sansBold, fontSize: FontSize.xxl, letterSpacing: -0.8, marginBottom: Spacing.two },
   subtitle: { fontFamily: FontFamily.sans, fontSize: FontSize.base, letterSpacing: 0.1 },
   form: { gap: Spacing.four, marginBottom: Spacing.seven },
@@ -212,6 +255,7 @@ const styles = StyleSheet.create({
   },
   ctaPressed: { opacity: 0.85, transform: [{ scale: 0.98 }] },
   ctaText: { fontFamily: FontFamily.sansSemiBold, fontSize: FontSize.base, color: '#FFFFFF', letterSpacing: 0.2 },
+  terms: { fontFamily: FontFamily.sans, fontSize: FontSize.xs, textAlign: 'center', lineHeight: FontSize.xs * 1.6 },
   footerRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
   footerText: { fontFamily: FontFamily.sans, fontSize: FontSize.sm },
   footerLink: { fontFamily: FontFamily.sansSemiBold, fontSize: FontSize.sm },

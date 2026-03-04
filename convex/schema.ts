@@ -4,11 +4,11 @@ import { v } from "convex/values";
 export default defineSchema({
   // Users — extended profile on top of better-auth's user record
   users: defineTable({
-    // better-auth user id (string) — used as the join key
     authId: v.string(),
     name: v.string(),
     email: v.string(),
     avatarUrl: v.optional(v.string()),
+    avatarStorageId: v.optional(v.id("_storage")),
     bio: v.optional(v.string()),
     createdAt: v.number(),
   })
@@ -33,11 +33,9 @@ export default defineSchema({
     address: v.string(),
     lat: v.number(),
     lng: v.number(),
-    // Convex file storage ID for the hero image
     imageStorageId: v.optional(v.id("_storage")),
-    // Fallback URL for seeded places that use a remote image
     imageUrl: v.optional(v.string()),
-    addedBy: v.optional(v.string()), // authId of the user who added it
+    addedBy: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_category", ["category"])
@@ -46,7 +44,7 @@ export default defineSchema({
   // Vibes — crowd-sourced "how busy is it right now" data points
   vibes: defineTable({
     placeId: v.id("places"),
-    userId: v.string(), // authId
+    userId: v.string(),
     level: v.union(
       v.literal("empty"),
       v.literal("quiet"),
@@ -61,10 +59,41 @@ export default defineSchema({
 
   // Saves — bookmarked places per user
   saves: defineTable({
-    userId: v.string(), // authId
+    userId: v.string(),
     placeId: v.id("places"),
     createdAt: v.number(),
   })
     .index("by_userId", ["userId"])
+    .index("by_userId_placeId", ["userId", "placeId"]),
+
+  // Image requests
+  imageRequests: defineTable({
+    placeId: v.id("places"),
+    submittedBy: v.string(),
+    imageStorageId: v.optional(v.id("_storage")),
+    status: v.union(v.literal("pending"), v.literal("approved"), v.literal("rejected")),
+    createdAt: v.number(),
+  })
+    .index("by_placeId", ["placeId"])
+    .index("by_submittedBy", ["submittedBy"]),
+
+  // Ratings — 1-5 star rating per user per place (one per user, updatable)
+  ratings: defineTable({
+    placeId: v.id("places"),
+    userId: v.string(),
+    stars: v.number(), // 1-5
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_placeId", ["placeId"])
+    .index("by_userId_placeId", ["userId", "placeId"]),
+
+  // Likes — one like per user per place (toggle)
+  likes: defineTable({
+    placeId: v.id("places"),
+    userId: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_placeId", ["placeId"])
     .index("by_userId_placeId", ["userId", "placeId"]),
 });
